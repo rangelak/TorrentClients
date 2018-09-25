@@ -73,7 +73,7 @@ class rmftStd(Peer):
             
             # don't make more requests than the maximum number of requests
             n = self.max_requests
-            if n == len(r):
+            if n == len(requests):
                 break
             
             holders = op_dict[(count, piece)]
@@ -129,6 +129,17 @@ class rmftStd(Peer):
         # For example, history.downloads[round-1] (if round != 0, of course)
         # has a list of Download objects for each Download to this peer in
         # the previous round.
+
+        # list for nice good-willed clients who let us download from them
+        coops = []
+
+        # let's fill the list
+        if round >= 2:
+            down_hist = history.downloads[round - 1] + history.downloads[round - 2]
+            for down in down_hist:
+                if down.
+                coops.append()
+
 
         if len(requests) == 0:
             logging.debug("No one wants my pieces!")
