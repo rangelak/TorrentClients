@@ -13,12 +13,13 @@ from messages import Upload, Request
 from util import even_split
 from peer import Peer
 
-class Dummy(Peer):
+
+class rmftStd(Peer):
     def post_init(self):
         print "post_init(): %s here!" % self.id
         self.dummy_state = dict()
-        self.dummy_state["cake"] = "lie"
-    
+
+
     def requests(self, peers, history):
         """
         peers: available info about the peers (who has what pieces)
@@ -52,10 +53,44 @@ class Dummy(Peer):
         # sorts might be useful
         peers.sort(key=lambda p: p.id)
         # request all available pieces from all peers!
+        
+        # Order the pieces by rarest first
+        op_dict = dict()
+        for piece in np_set:
+            count = 0
+            holders = []
+            
+            for peer in peers:
+                if piece in peer.available_pieces:
+                    count = count + 1
+                    holders.append(peer.id)
+
+            # add the peers who have the piece to the dictionary
+            op_dict[(count,piece)] = holders
+
+        # requesting the rarest piece first
+        for count, piece in sorted(op_dict):
+            
+            # don't make more requests than the maximum number of requests
+            n = self.max_requests
+            if n == len(r):
+                break
+            
+            holders = op_dict[(count, piece)]
+            for holder in holders:
+                start_block = self.pieces[piece]
+                r = Request(self.id, holder, piece, start_block)
+                requests.append(r)
+
+
+        """
+        # default code
         # (up to self.max_requests from each)
         for peer in peers:
             av_set = set(peer.available_pieces)
             isect = av_set.intersection(np_set)
+
+
             n = min(self.max_requests, len(isect))
             # More symmetry breaking -- ask for random pieces.
             # This would be the place to try fancier piece-requesting strategies
@@ -67,9 +102,15 @@ class Dummy(Peer):
                 start_block = self.pieces[piece_id]
                 r = Request(self.id, peer.id, piece_id, start_block)
                 requests.append(r)
+        """
 
         return requests
-
+    
+    """
+    if peer j uploads with more than the third highest current download, unchoke j next period
+    if peer i uploads with less than the third highest download, don't unchoke in next period
+    optimistically unchoke random peer at the end of each period.
+    """  
     def uploads(self, requests, peers, history):
         """
         requests -- a list of the requests for this peer for this round
@@ -96,7 +137,7 @@ class Dummy(Peer):
         else:
             logging.debug("Still here: uploading to a random peer")
             # change my internal state for no reason
-            self.dummy_state["cake"] = "pie"
+            # self.dummy_state["cake"] = "pie"
 
             request = random.choice(requests)
             chosen = [request.requester_id]
