@@ -121,6 +121,11 @@ class rmftStd(Peer):
 
         In each round, this will be called after requests().
         """
+        # defining the number of upload slots
+        up_slots = 4
+
+        # the people we are choosing to upload to
+        chosen = []
 
         round = history.current_round()
         logging.debug("%s again.  It's round %d." % (
@@ -130,30 +135,65 @@ class rmftStd(Peer):
         # has a list of Download objects for each Download to this peer in
         # the previous round.
 
-        # list for nice good-willed clients who let us download from them
-        coops = []
+        # dictionary for nice, good-willed clients who let us download from them
+        coops = dict()
 
-        # let's fill the list
+        # let's fill the dictionary
         if round >= 2:
             down_hist = history.downloads[round - 1] + history.downloads[round - 2]
             for down in down_hist:
-                if down.
-                coops.append()
-
+                if down.from_id not in coops:          
+                    coops[down.from_id] = down.blocks
+                else:
+                    coops[down.from_id] += down.blocks
 
         if len(requests) == 0:
             logging.debug("No one wants my pieces!")
-            chosen = []
             bws = []
         else:
             logging.debug("Still here: uploading to a random peer")
+            
+            """ 
+            odd default code with absolutely no functionality commented out
             # change my internal state for no reason
             # self.dummy_state["cake"] = "pie"
+            """
+            # unchoking before we have data or if there are less requesters than slots
+            if round < 2 or len(requests) < up_slots:
+                for i in range(up_slots):
+                    
+                    # making sure that since we remove requests, the list isn't empty
+                    if len(requests) != 0:
+                        request = random.choice(requests)
+                        # getting rid of the request for the next iteration 
+                        requests.remove(request)
+                        chosen.append(request.requester_id)
+                # Evenly "split" my upload bandwidth among the one chosen requester
+                bws = even_split(self.up_bw, len(chosen))
+            else:
+                # starting counter at 1 to keep one slot for optimistic unchoking 
+                counter = 1
+                for coop_id, value in sorted(coops.iteritems(), key=lambda (k,v): (v,k)):
+                    if counter == up_slots:
+                        break
 
-            request = random.choice(requests)
-            chosen = [request.requester_id]
-            # Evenly "split" my upload bandwidth among the one chosen requester
-            bws = even_split(self.up_bw, len(chosen))
+                    if len(requests) != 0:
+                        for request in requests:
+                            if coop_id == request.requester_id:
+                                chosen.append(coop_id)
+                                del coops[coop_id]
+                                requests.remove(request)
+                                counter += 1
+                                break
+                
+                # unchoke 1 peer optimistically
+                if len(requests) != 0:
+                    request = random.choice(requests)
+                    chosen.append(request.requester_id)
+                
+                # Evenly "split" my upload bandwidth among the one chosen requester
+                bws = even_split(self.up_bw, len(chosen))
+
 
         # create actual uploads out of the list of peer ids and bandwidths
         uploads = [Upload(self.id, peer_id, bw)
