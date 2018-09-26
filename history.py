@@ -13,7 +13,6 @@ class AgentHistory:
         
     history.uploads: [[Upload objects for round]]  (one sublist for each round)
          All the downloads _from_ this agent.
-
     """
     def __init__(self, peer_id, downloads, uploads):
         """
