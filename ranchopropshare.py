@@ -26,17 +26,6 @@ class RanchoPropShare(Peer):
         lacks_blocks = lambda i: self.pieces[i] < self.conf.blocks_per_piece
         needed_piece_id_list = filter(lacks_blocks, range(len(self.pieces)))
 
-        logging.debug("%s here: still need pieces %s" % (
-            self.id, needed_piece_id_list))
-
-        logging.debug("%s still here. Here are some peers:" % self.id)
-        for p in peers:
-            logging.debug("id: %s, available pieces: %s" % (p.id, p.available_pieces))
-
-        logging.debug("And look, I have my entire history available too:")
-        logging.debug("look at the AgentHistory class in history.py for details")
-        logging.debug(str(history))
-
         sent_requests = []
 
         random.shuffle(needed_piece_id_list)
@@ -86,8 +75,6 @@ class RanchoPropShare(Peer):
         unchoked_peer_id_list = []
 
         current_round = history.current_round()
-        logging.debug("%s again.  It's round %d." % (
-            self.id, current_round))
 
         cooperative_peer_id_list = []
 
@@ -98,11 +85,8 @@ class RanchoPropShare(Peer):
             cooperative_peer_id_list = [(d.blocks, d.from_id) for d in recent_download_history]
 
         if len(incoming_requests) == 0:
-            logging.debug("No one wants my pieces!")
             bandwidths = []
         else:
-            logging.debug("Unchoking peers.")
-
             requester_id_list = map(lambda req: req.requester_id, incoming_requests)
 
             # Requesters shuffled for impartiality
