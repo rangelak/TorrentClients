@@ -106,11 +106,12 @@ class rmftStd(Peer):
         else:
             logging.debug("Unchoking peers.")
 
-            # Requesters shuffled for impartiality
-            requester_id_list = random.shuffle(map(lambda req: req.requester_id, incoming_requests))
+            requester_id_list = map(lambda req: req.requester_id, incoming_requests)
 
-            cooperative_requester_id_list =
-                sorted(filter(lambda cp: cp[1] in requester_id_list, cooperative_peer_id_list), reverse=True)
+            # Requesters shuffled for impartiality
+            random.shuffle(requester_id_list)
+
+            cooperative_requester_id_list = sorted(filter(lambda cp: cp[1] in requester_id_list, cooperative_peer_id_list),reverse=True)
 
             # Add at most 3 peers by download speed ranking
             unchoked_peer_id_list = cooperative_requester_id_list[:(self.upload_slots - self.optimistic_slots)]
