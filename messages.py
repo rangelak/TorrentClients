@@ -35,9 +35,6 @@ class Download:
         return "Download(from_id=%s, to_id=%s, piece=%d, blocks=%d)" % (
             self.from_id, self.to_id, self.piece, self.blocks)
 
-
-
-            
 class PeerInfo:
     """
     Only passing peer ids and the pieces they have available to each agent.
@@ -49,4 +46,3 @@ class PeerInfo:
 
     def __repr__(self):
         return "PeerInfo(id=%s)" % self.id
-

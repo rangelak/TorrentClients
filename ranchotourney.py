@@ -18,7 +18,7 @@ class RanchoTourney(Peer):
 
     def requests(self, peers, history):
         """
-        peers: List of Peer objects.
+        peers: List of PeerInfo objects.
         history: AgentHistory object.
         returns: List of Request objects.
         requests be called after update_pieces
@@ -67,7 +67,7 @@ class RanchoTourney(Peer):
     def uploads(self, incoming_requests, peers, history):
         """
         incoming_requests: list Request objects.
-        peers: list of Peer objects.
+        peers: list of PeerInfo objects.
         history: AgentHistory object.
         returns: list of Upload objects.
         uploads will be called after requests
