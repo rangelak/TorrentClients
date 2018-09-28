@@ -14,7 +14,7 @@ from peer import Peer
 
 class RanchoPropShare(Peer):
     def post_init(self):
-        self.assumed_peer_blocks = 4
+        #self.assumed_peer_blocks = 4
         self.optimistic_unchoking_bandwidth = 0.1
         self.optimistically_unchoked_peer = None
 
@@ -103,7 +103,7 @@ class RanchoPropShare(Peer):
                         bandwidth_by_peer.append(optimistically_unchoked_tuple)
                         break
 
-            bandwidth_by_peer = map(lambda (x, y): (x, math.floor(y*self.up_bw)), bandwidth_by_peer)
+            bandwidth_by_peer = map(lambda (x, y): (x, int(y*self.up_bw)), bandwidth_by_peer)
             #print bandwidth_by_peer
 
 
