@@ -6,6 +6,7 @@
 
 import random
 import logging
+import math
 
 from messages import Upload, Request
 from util import even_split
@@ -13,8 +14,9 @@ from peer import Peer
 
 class RanchoPropShare(Peer):
     def post_init(self):
-        self.upload_slots = 4
-        self.optimistic_slots = 1
+        self.assumed_peer_blocks = 4
+        self.optimistic_unchoking_bandwidth = 0.1
+        self.optimistically_unchoked_peer = None
 
     def requests(self, peers, history):
         """
@@ -45,7 +47,7 @@ class RanchoPropShare(Peer):
             pieces_by_holder_dict[(len(holder_peer_id_list), piece_id)] = holder_peer_id_list
 
         # Requesting the rarest piece first
-        for count, piece_id in sorted(pieces_by_holder_dict):
+        for count, piece_id in sorted(pieces_by_holder_dict, key=lambda (k,v): k):
 
             # Don't make more requests than the maximum number of requests
             if self.max_requests == len(sent_requests):
@@ -72,40 +74,65 @@ class RanchoPropShare(Peer):
         returns: list of Upload objects.
         uploads will be called after requests
         """
-        unchoked_peer_id_list = []
-
-        current_round = history.current_round()
-
-        cooperative_peer_id_list = []
+        current_round = history.current_round() 
+        bandwidth_by_peer = []
+        cooperative_peers = {}
 
         if current_round > 0:
-            # Assuming the last round is ok instead of 20 secs.
-            # Other clients might accumulate history of several rounds.
-            recent_download_history = history.downloads[current_round - 1]
-            cooperative_peer_id_list = [(d.blocks, d.from_id) for d in recent_download_history]
+            # (current_round - 1) is the last round. Get the cooperative peers from round t-1
+            cooperative_peers = {d.from_id: d.blocks for d in history.downloads[current_round - 1]}
 
-        if len(incoming_requests) == 0:
-            bandwidths = []
-        else:
+        # Nobody wants our pieces
+        if len(incoming_requests) != 0:
             requester_id_list = map(lambda req: req.requester_id, incoming_requests)
 
             # Requesters shuffled for impartiality
             random.shuffle(requester_id_list)
 
-            cooperative_requester_id_list = sorted(filter(lambda cp: cp[1] in requester_id_list, cooperative_peer_id_list),reverse=True)
+            # Calculate the bandwidth percentage, based on what the others requested
+            bandwidth_by_peer = self.allocate_bandwidth(cooperative_peers, requester_id_list)
+            #print bandwidth_by_peer
 
-            # Add at most 3 peers by download speed ranking
-            unchoked_peer_id_list = cooperative_requester_id_list[:(self.upload_slots - self.optimistic_slots)]
+            # If the optimistically unchoked peer is not requesting any longer, replace it.
+            if current_round % 3 == 0 or self.optimistically_unchoked_peer not in requester_id_list:
+                # Optimistically unchoke a peer
+                for requester_id in requester_id_list:
+                    if requester_id not in cooperative_peers:
+                        self.optimistically_unchoked_peer = requester_id
+                        optimistically_unchoked_tuple = (self.optimistically_unchoked_peer, self.optimistic_unchoking_bandwidth)
+                        bandwidth_by_peer.append(optimistically_unchoked_tuple)
+                        break
 
-            # Use the rest of the slots to unchoke optimistically
-            for requester_id in requester_id_list:
-                if len(unchoked_peer_id_list) < 4 and requester_id not in unchoked_peer_id_list:
-                    unchoked_peer_id_list.append(requester_id)
+            bandwidth_by_peer = map(lambda (x, y): (x, math.floor(y*self.up_bw)), bandwidth_by_peer)
+            #print bandwidth_by_peer
 
-            # Evenly "split" my upload bandwidth among the unchoked requesters
-            bandwidths = even_split(self.up_bw, len(unchoked_peer_id_list))
+
 
         # create actual uploads out of the list of peer ids and bandwidths
-        uploads = [Upload(self.id, peer_id, bw) for (peer_id, bw) in zip(unchoked_peer_id_list, bandwidths)]
-
+        uploads = [Upload(self.id, peer_id, bw) for (peer_id, bw) in bandwidth_by_peer]
         return uploads
+
+    # function to allocate bandwidth by peer id, given that we use data for the cooperative peers from the last round
+    def allocate_bandwidth(self, cooperative_peers, requester_id_list):
+        bandwidth_by_peer = []
+        
+        # factor for the non-optimistic unchoking
+        unchoking_factor = 1 - self.optimistic_unchoking_bandwidth
+        
+        if len(requester_id_list) == 0:
+            return bandwidth_by_peer
+
+        # iterate through the requesters and check if they cooperate before, if so, upload to them we shall!
+        for requester_id in requester_id_list:
+            if requester_id in cooperative_peers:
+                download_from_requester = cooperative_peers[requester_id]
+                bandwidth_by_peer.append((requester_id, download_from_requester))
+
+        # get the total downloads from the peers you're interested in
+        total_download_from_requesters = sum(d for p, d in bandwidth_by_peer)
+
+        # Bandwidth per requester is proportional to the amount they let us download last round
+        bandwidth_by_peer = map(lambda (x, y): (x, unchoking_factor*(y/float(total_download_from_requesters))), bandwidth_by_peer)
+        return bandwidth_by_peer
+
+
