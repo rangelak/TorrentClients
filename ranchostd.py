@@ -34,7 +34,8 @@ class RanchoStd(Peer):
         random.shuffle(peers)
 
         # Order the pieces by rarest first
-        pieces_by_holder_dict = dict()
+        # [(number_holders, piece_id, [holder_list])]
+        pieces_by_holder_list = []
         for piece_id in needed_piece_id_list:
             holder_peer_id_list = []
 
@@ -43,17 +44,17 @@ class RanchoStd(Peer):
                     holder_peer_id_list.append(peer.id)
 
             # Add the peers who have the piece to the dictionary
-            pieces_by_holder_dict[(len(holder_peer_id_list), piece_id)] = holder_peer_id_list
+            pieces_by_holder_list.append((len(holder_peer_id_list), piece_id, holder_peer_id_list))
 
+        sorted_pieces_by_holder_list = sorted(pieces_by_holder_list, key=lambda (k,_v,_l): k)
         # Requesting the rarest piece first
-        for count, piece_id in sorted(pieces_by_holder_dict, key=lambda (k,v): k):
+        for count, piece_id, holder_list in sorted_pieces_by_holder_list:
 
             # Don't make more requests than the maximum number of requests
             if self.max_requests == len(sent_requests):
                 break
 
-            holder_peer_id_list = pieces_by_holder_dict[(count, piece_id)]
-            for holder in holder_peer_id_list:
+            for holder in holder_list:
                 first_block = self.pieces[piece_id]
                 r = Request(self.id, holder, piece_id, first_block)
                 sent_requests.append(r)
