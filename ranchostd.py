@@ -46,7 +46,9 @@ class RanchoStd(Peer):
             # Add the peers who have the piece to the dictionary
             pieces_by_holder_list.append((len(holder_peer_id_list), piece_id, holder_peer_id_list))
 
-        sorted_pieces_by_holder_list = sorted(pieces_by_holder_list, key=lambda (k,_v,_l): k)
+        # Tie breaking the sorting by prioritizing pieces that we're close to completing.
+        # This is important to that we can start sharing them as soon as possible.
+        sorted_pieces_by_holder_list = sorted(pieces_by_holder_list, key=lambda (piece_id,_v,_l): (piece_id, self.conf.blocks_per_piece - self.pieces[piece_id]))
         # Requesting the rarest piece first
         for count, piece_id, holder_list in sorted_pieces_by_holder_list:
 
