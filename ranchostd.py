@@ -100,14 +100,14 @@ class RanchoStd(Peer):
         if len(incoming_requests) == 0:
             bandwidths = []
         else:
-            requester_id_list = map(lambda req: req.requester_id, incoming_requests)
+            requester_id_list = list({r.requester_id for r in incoming_requests})
 
             # Requesters shuffled for impartiality
             random.shuffle(requester_id_list)
 
             cooperative_peer_id_list = map(lambda x: x[1], sorted(cooperative_peers.iteritems(), key=lambda (k,v): (v,k), reverse=True))
 
-            # Keeps the order of the coopereative peers from most to least cooperative.
+            # Keeps the order of the cooperative peers from most to least cooperative.
             cooperative_requester_id_list = filter(lambda cp: cp in requester_id_list, cooperative_peer_id_list)
 
             # Number of slots not usually optimistically unchoked
