@@ -23,11 +23,12 @@ class RanchoTyrant(Peer):
         # {peer_id : (last_updated, [available_pieces])}
         self.recent_history_pieces_by_peer = dict()
         self.currently_unchoked_by_peer_set = set()
+        self.currently_unchoked_by_peer_set = set()
         self.unchoked_peer_set = set()
         self.bandwith_increasing_factor = 1.2
         self.bandwith_decreasing_factor = 0.9
         self.confidence_unchoked_periods = 3
-        self.initial_min_upload_rate = 1
+        self.initial_min_upload_rate = 10
 
     def requests(self, peers, history):
         """
@@ -48,7 +49,8 @@ class RanchoTyrant(Peer):
         random.shuffle(peers)
 
         # Order the pieces by rarest first
-        pieces_by_holder_dict = dict()
+        # [(number_holders, piece_id, [holder_id_list])]
+        pieces_by_holder_id_list = []
         for piece_id in needed_piece_id_list:
             holder_peer_id_list = []
 
@@ -56,21 +58,27 @@ class RanchoTyrant(Peer):
                 if piece_id in peer.available_pieces:
                     holder_peer_id_list.append(peer.id)
 
-            # Add the peers who have the piece to the dictionary
-            pieces_by_holder_dict[(len(holder_peer_id_list), piece_id)] = holder_peer_id_list
+            # Add the pieces to the list and its holders
+            if len(holder_peer_id_list) > 0:
+                pieces_by_holder_id_list.append((piece_id, holder_peer_id_list))
+
+        # Sort pieces by rarity
+        # Tie breaking the sorting by prioritizing pieces that we're close to completing.
+        # This is important to that we can start sharing them as soon as possible.
+        pieces_by_rarity_list = sorted(pieces_by_holder_id_list, key=lambda (piece_id, holders): (len(holders), self.conf.blocks_per_piece - self.pieces[piece_id]))
+
+        # Keep track of sent requests to not reach the max
+        sent_requests_per_peer = {peer.id: 0 for peer in peers}
 
         # Requesting the rarest piece first
-        for count, piece_id in sorted(pieces_by_holder_dict, key=lambda (k,v): k):
-
-            # Don't make more requests than the maximum number of requests
-            if self.max_requests == len(sent_requests):
-                break
-
-            holder_peer_id_list = pieces_by_holder_dict[(count, piece_id)]
-            for holder in holder_peer_id_list:
-                first_block = self.pieces[piece_id]
-                r = Request(self.id, holder, piece_id, first_block)
-                sent_requests.append(r)
+        for piece_id, holder_id_list in pieces_by_rarity_list:
+            for holder_id in holder_id_list:
+                # Don't make more requests than the maximum number of requests
+                if sent_requests_per_peer[holder_id] < self.max_requests:
+                    first_block = self.pieces[piece_id]
+                    request = Request(self.id, holder_id, piece_id, first_block)
+                    sent_requests.append(request)
+                    sent_requests_per_peer[holder_id] += 1
 
         return sent_requests
 
@@ -87,33 +95,21 @@ class RanchoTyrant(Peer):
         requester_id_list = []
 
         if len(incoming_requests) > 0:
-            requester_id_list = map(lambda req: req.requester_id, incoming_requests)
+            requester_id_list = list({r.requester_id for r in incoming_requests})
 
             # Sorts from largest to smallest ratio
             sorted_requester_id_list = sorted(map(self.calculate_ratio, requester_id_list), reverse=True)
 
-            # Preserves order but uses all the bandwidth
-            # total_needed_bandwith = 0
-            # for pid in requester_id_list:
-            #     total_needed_bandwith += self.estimated_min_upload_rate_to_peer[pid][1]
-            #     if total_needed_bandwith > self.up_bw:
-            #         break
-
-            # if total_needed_bandwith < self.up_bw:
-            #     for pid in requester_id_list:
-            #         self.estimated_min_upload_rate_to_peer[pid] = self.estimated_min_upload_rate_to_peer[pid][0], int(self.estimated_min_upload_rate_to_peer[pid][1] * self.up_bw / total_needed_bandwith)
-            # else:
             bandwidth_accumulator = 0
             for index, pid in enumerate(requester_id_list):
                 bandwidth_accumulator += self.estimated_min_upload_rate_to_peer[pid][1]
                 if bandwidth_accumulator > self.up_bw:
                     # Dont include this one or the rest
-                    requester_id_list = requester_id_list[:(index-1)]
+                    requester_id_list = requester_id_list[:index]
                     break
 
         # create actual uploads out of the list of peer ids and bandwidths
         uploads = [Upload(self.id, pid, self.estimated_min_upload_rate_to_peer[pid][1]) for pid in requester_id_list]
-        print uploads
         return uploads
 
     def maintain_peer_data(self, peers, history):
@@ -121,10 +117,9 @@ class RanchoTyrant(Peer):
 
         # Initializing all the data
         if current_round == 0:
-            initial_expected_min_upload_rate = self.up_bw / len(peers)
             self.recent_history_pieces_by_peer = {peer.id: (0, peer.available_pieces) for peer in peers}
             self.expected_download_from_peer_flow = {peer.id: 0 for peer in peers}
-            self.estimated_min_upload_rate_to_peer = {peer.id: (0, initial_expected_min_upload_rate) for peer in peers}
+            self.estimated_min_upload_rate_to_peer = {peer.id: (0, self.initial_min_upload_rate) for peer in peers}
             return
 
         last_round_download_history = history.downloads[current_round - 1]
@@ -145,11 +140,6 @@ class RanchoTyrant(Peer):
                 # Be more selfish with generous peers
                 self.estimated_min_upload_rate_to_peer[download.from_id] = self.estimated_min_upload_rate_to_peer[download.from_id][0], self.estimated_min_upload_rate_to_peer[download.from_id][1] * self.bandwith_decreasing_factor
 
-        # See if we should increase the expected upload rate
-        for unchoked_peer in self.unchoked_peer_set:
-            if unchoked_peer.id not in self.currently_unchoked_by_peer_set:
-                self.estimated_min_upload_rate_to_peer[unchoked_peer.id] = 0, self.estimated_min_upload_rate_to_peer[unchoked_peer.id][1] * self.bandwith_increasing_factor
-
         # Estimated download flow for a single peer
         def estimate_flow(peer):
             if peer.id not in known_capacity_peer_ids:
@@ -168,9 +158,12 @@ class RanchoTyrant(Peer):
 
         map(estimate_flow, peers)
 
+        # See if we should increase the expected upload rate - unchoked peer choking us
+        for unchoked_peer in self.unchoked_peer_set:
+            if unchoked_peer.id not in self.currently_unchoked_by_peer_set:
+                self.estimated_min_upload_rate_to_peer[unchoked_peer.id] = 0, self.estimated_min_upload_rate_to_peer[unchoked_peer.id][1] * self.bandwith_increasing_factor
+
     def calculate_ratio(self, peer_id):
-        if self.estimated_min_upload_rate_to_peer[peer_id][1] == 0:
-            return float(inf), peer_id
         ratio = float(self.expected_download_from_peer_flow[peer_id]) / self.estimated_min_upload_rate_to_peer[peer_id][1]
         return ratio, peer_id
 
