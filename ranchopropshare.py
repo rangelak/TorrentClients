@@ -35,7 +35,8 @@ class RanchoPropShare(Peer):
         random.shuffle(peers)
 
         # Order the pieces by rarest first
-        pieces_by_holder_dict = dict()
+        # [(number_holders, piece_id, [holder_id_list])]
+        pieces_by_holder_id_list = []
         for piece_id in needed_piece_id_list:
             holder_peer_id_list = []
 
@@ -43,21 +44,27 @@ class RanchoPropShare(Peer):
                 if piece_id in peer.available_pieces:
                     holder_peer_id_list.append(peer.id)
 
-            # Add the peers who have the piece to the dictionary
-            pieces_by_holder_dict[(len(holder_peer_id_list), piece_id)] = holder_peer_id_list
+            # Add the pieces to the list and its holders
+            if len(holder_peer_id_list) > 0:
+                pieces_by_holder_id_list.append((piece_id, holder_peer_id_list))
+
+        # Sort pieces by rarity
+        # Tie breaking the sorting by prioritizing pieces that we're close to completing.
+        # This is important to that we can start sharing them as soon as possible.
+        pieces_by_rarity_list = sorted(pieces_by_holder_id_list, key=lambda (piece_id, holders): (len(holders), self.conf.blocks_per_piece - self.pieces[piece_id]))
+
+        # Keep track of sent requests to not reach the max
+        sent_requests_per_peer = {peer.id: 0 for peer in peers}
 
         # Requesting the rarest piece first
-        for count, piece_id in sorted(pieces_by_holder_dict, key=lambda (k,v): k):
-
-            # Don't make more requests than the maximum number of requests
-            if self.max_requests == len(sent_requests):
-                break
-
-            holder_peer_id_list = pieces_by_holder_dict[(count, piece_id)]
-            for holder in holder_peer_id_list:
-                first_block = self.pieces[piece_id]
-                r = Request(self.id, holder, piece_id, first_block)
-                sent_requests.append(r)
+        for piece_id, holder_id_list in pieces_by_rarity_list:
+            for holder_id in holder_id_list:
+                # Don't make more requests than the maximum number of requests
+                if sent_requests_per_peer[holder_id] < self.max_requests:
+                    first_block = self.pieces[piece_id]
+                    request = Request(self.id, holder_id, piece_id, first_block)
+                    sent_requests.append(request)
+                    sent_requests_per_peer[holder_id] += 1
 
         return sent_requests
 
@@ -74,7 +81,7 @@ class RanchoPropShare(Peer):
         returns: list of Upload objects.
         uploads will be called after requests
         """
-        current_round = history.current_round() 
+        current_round = history.current_round()
         bandwidth_by_peer = []
         cooperative_peers = {}
 
@@ -82,16 +89,14 @@ class RanchoPropShare(Peer):
             # (current_round - 1) is the last round. Get the cooperative peers from round t-1
             cooperative_peers = {d.from_id: d.blocks for d in history.downloads[current_round - 1]}
 
-        # Nobody wants our pieces
         if len(incoming_requests) != 0:
-            requester_id_list = map(lambda req: req.requester_id, incoming_requests)
+            requester_id_list = list({r.requester_id for r in incoming_requests})
 
             # Requesters shuffled for impartiality
             random.shuffle(requester_id_list)
 
             # Calculate the bandwidth percentage, based on what the others requested
             bandwidth_by_peer = self.allocate_bandwidth(cooperative_peers, requester_id_list)
-            #print bandwidth_by_peer
 
             # If the optimistically unchoked peer is not requesting any longer, replace it.
             if current_round % 3 == 0 or self.optimistically_unchoked_peer not in requester_id_list:
@@ -104,9 +109,6 @@ class RanchoPropShare(Peer):
                         break
 
             bandwidth_by_peer = map(lambda (x, y): (x, int(y*self.up_bw)), bandwidth_by_peer)
-            #print bandwidth_by_peer
-
-
 
         # create actual uploads out of the list of peer ids and bandwidths
         uploads = [Upload(self.id, peer_id, bw) for (peer_id, bw) in bandwidth_by_peer]
@@ -115,10 +117,10 @@ class RanchoPropShare(Peer):
     # function to allocate bandwidth by peer id, given that we use data for the cooperative peers from the last round
     def allocate_bandwidth(self, cooperative_peers, requester_id_list):
         bandwidth_by_peer = []
-        
+
         # factor for the non-optimistic unchoking
-        unchoking_factor = 1 - self.optimistic_unchoking_bandwidth
-        
+        reciprocative_bandwith = 1 - self.optimistic_unchoking_bandwidth
+
         if len(requester_id_list) == 0:
             return bandwidth_by_peer
 
@@ -132,7 +134,7 @@ class RanchoPropShare(Peer):
         total_download_from_requesters = sum(d for p, d in bandwidth_by_peer)
 
         # Bandwidth per requester is proportional to the amount they let us download last round
-        bandwidth_by_peer = map(lambda (x, y): (x, unchoking_factor*(y/float(total_download_from_requesters))), bandwidth_by_peer)
+        bandwidth_by_peer = map(lambda (x, y): (x, reciprocative_bandwith*(y/float(total_download_from_requesters))), bandwidth_by_peer)
         return bandwidth_by_peer
 
 
