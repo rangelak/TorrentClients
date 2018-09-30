@@ -373,6 +373,7 @@ class Sim:
 
         logging.warning("Uploaded blocks: avg (stddev)")
         
+        x = [0,1,2,3,4,5,6,7,8,9]
         x_axis = []
         y_axis = []
         stddev_axis = []
@@ -388,7 +389,8 @@ class Sim:
 
         plt.ylabel('Uploaded Blocks Average')
         plt.xlabel('Agent Name')
-        plt.errorbar(x_axis, y_axis, stddev_axis, linestyle='None', marker='^')
+        plt.xticks(x, x_axis, rotation=45)
+        plt.errorbar(x_axis, y_axis, stddev_axis, linestyle='None', marker='o')
         plt.show()
         
         logging.warning("Completion rounds: avg (stddev)")
@@ -404,6 +406,7 @@ class Sim:
         opt_mean = optionize(mean)
         opt_stddev = optionize(stddev)
 
+        x = [0,1,2,3,4,5,6,7,8,9]
         x_axis = []
         y_axis = []
         stddev_axis = []
@@ -419,7 +422,8 @@ class Sim:
 
         plt.ylabel('Completion Time Average')
         plt.xlabel('Agent Name')
-        plt.errorbar(x_axis, y_axis, stddev_axis, linestyle='None', marker='^')
+        plt.xticks(x, x_axis, rotation=45)
+        plt.errorbar(x_axis, y_axis, stddev_axis, linestyle='None', marker='o')
         plt.show()
     """
     #plot graph for completion rounds.
