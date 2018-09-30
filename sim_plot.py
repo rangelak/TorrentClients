@@ -372,11 +372,25 @@ class Sim:
             for p_id in self.peer_ids)
 
         logging.warning("Uploaded blocks: avg (stddev)")
+        
+        x_axis = []
+        y_axis = []
+        stddev_axis = []
+
         for p_id in sorted(self.peer_ids,
                            key=lambda id: mean(uploaded_by_id[id])):
             us = uploaded_by_id[p_id]
+            if not p_id.startswith("Seed"):
+                x_axis.append(p_id)
+                y_axis.append(mean(us))
+                stddev_axis.append(stddev(us))
             logging.warning("%s: %.1f  (%.1f)" % (p_id, mean(us), stddev(us)))
 
+        plt.ylabel('Uploaded Blocks Average')
+        plt.xlabel('Agent Name')
+        plt.errorbar(x_axis, y_axis, stddev_axis, linestyle='None', marker='^')
+        plt.show()
+        
         logging.warning("Completion rounds: avg (stddev)")
 
         def optionize(f):
@@ -390,12 +404,25 @@ class Sim:
         opt_mean = optionize(mean)
         opt_stddev = optionize(stddev)
 
+        x_axis = []
+        y_axis = []
+        stddev_axis = []
+
         for p_id in sorted(self.peer_ids,
                            key=lambda id: opt_mean(completion_by_id[id])):
             cs = completion_by_id[p_id]
+            if not p_id.startswith("Seed"):
+                x_axis.append(p_id)
+                y_axis.append(opt_mean(cs))
+                stddev_axis.append(opt_stddev(cs))
             logging.warning("%s: %s  (%s)" % (p_id, opt_mean(cs), opt_stddev(cs)))
 
-    # plot graph for completion rounds.
+        plt.ylabel('Completion Time Average')
+        plt.xlabel('Agent Name')
+        plt.errorbar(x_axis, y_axis, stddev_axis, linestyle='None', marker='^')
+        plt.show()
+    """
+    #plot graph for completion rounds.
     def plot(self):
         histories = map(lambda i: self.run_sim_once(),
                         range(self.config.iters))
@@ -408,8 +435,6 @@ class Sim:
             histories)
 
         def extract_by_peer_id(lst, peer_id):
-            """Given a list of dicts, pull out the entry
-            for peer_id from each dict.  Return a list"""
             return map(lambda d: d[peer_id], lst)
 
         uploaded_by_id = dict(
@@ -431,13 +456,13 @@ class Sim:
         opt_mean = optionize(mean)
         opt_stddev = optionize(stddev)
 
-        x_axis = np.array([])
+        x_axis = np.array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
         y_axis = np.array([])
         stddev_axis = np.array([])
         for p_id in sorted(self.peer_ids,
                            key=lambda id: opt_mean(completion_by_id[id])):
             cs = completion_by_id[p_id]
-            np.append(x_axis, p_id, axis = None)
+            #np.append(x_axis, p_id, axis = None)
             np.append(y_axis, opt_mean(cs), axis = None)
             np.append(stddev_axis, opt_stddev(cs), axis = None)
         plt.errorbar(x_axis, y_axis, stddev_axis,linestyle='None', marker='^')
@@ -445,7 +470,7 @@ class Sim:
         plt.xlabel('Agent')
 
         plt.show()
-
+    """
         
 
 def configure_logging(loglevel):
@@ -550,7 +575,7 @@ def main(args):
 
     sim = Sim(config)
     sim.run_sim()
-    sim.plot()
+    #sim.plot()
 
 if __name__ == "__main__":
 
