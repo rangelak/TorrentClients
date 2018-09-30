@@ -66,11 +66,6 @@ class RanchoStd(Peer):
 
         return sent_requests
 
-
-    # If peer i uploads with more than the third highest current download, unchoke i next period.
-    # Else if it uploads with less than the third highest download, choke in next period
-    # Optimistically unchoke random peer every third period.
-
     def uploads(self, incoming_requests, peers, history):
         """
         incoming_requests: list Request objects.
