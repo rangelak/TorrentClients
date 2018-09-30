@@ -25,8 +25,8 @@ class RanchoTyrant(Peer):
         self.receiver_peer_id_set = set()
         self.bandwith_increasing_factor = 1.2
         self.bandwith_decreasing_factor = 0.9
-        self.confidence_unchoked_periods = 3
-        self.initial_min_upload_rate = self.up_bw / (self.assumed_peer_slots + 1)
+        self.confidence_unchoked_periods = 2
+        self.initial_min_upload_rate = self.up_bw / (self.assumed_peer_slots)
 
     def requests(self, peers, history):
         """
@@ -43,19 +43,15 @@ class RanchoTyrant(Peer):
 
         random.shuffle(peers)
 
-        # Order the pieces by rarest first
+        # Finding which peers have the pieces we need
         # [(piece_id, [holder_id_list])]
         pieces_by_holder_id_list = []
         for piece_id in needed_pieces:
             holder_peer_id_list = []
-
             for peer in peers:
                 if piece_id in peer.available_pieces:
                     holder_peer_id_list.append(peer.id)
-
-            # Add the pieces to the list and its holders
-            if len(holder_peer_id_list) > 0:
-                pieces_by_holder_id_list.append((piece_id, holder_peer_id_list))
+            pieces_by_holder_id_list.append((piece_id, holder_peer_id_list))
 
         # Sort pieces by rarity
         # Tie breaking the sorting by prioritizing pieces that we're close to completing.
@@ -161,10 +157,6 @@ class RanchoTyrant(Peer):
                     break
 
             used_bandwidths = map(lambda pid: int(self.estimated_min_upload_rate_to_peer[pid]), sorted_requester_id_list)
-
-            # Use up all the bandwith that's left
-            if bandwidth_accumulator < self.up_bw:
-                used_bandwidths = map(lambda bw: int(bw * self.up_bw / (bandwidth_accumulator + 1)), used_bandwidths)
 
         # Create actual uploads out of the list of peer ids and bandwidths
         uploads = [Upload(self.id, pid, bw) for pid, bw in zip(sorted_requester_id_list, used_bandwidths)]

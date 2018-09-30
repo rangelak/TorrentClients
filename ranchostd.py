@@ -15,7 +15,7 @@ class RanchoStd(Peer):
     def post_init(self):
         self.upload_slots = 4
         self.optimistic_slots = 1
-        self.optimistically_unchoked_peer_id_list = [None]
+        self.optimistically_unchoked_peer_id = None
 
     def requests(self, peers, history):
         """
@@ -32,19 +32,15 @@ class RanchoStd(Peer):
 
         random.shuffle(peers)
 
-        # Order the pieces by rarest first
+        # Finding which peers have the pieces we need
         # [(piece_id, [holder_id_list])]
         pieces_by_holder_id_list = []
         for piece_id in needed_pieces:
             holder_peer_id_list = []
-
             for peer in peers:
                 if piece_id in peer.available_pieces:
                     holder_peer_id_list.append(peer.id)
-
-            # Add the pieces to the list and its holders
-            if len(holder_peer_id_list) > 0:
-                pieces_by_holder_id_list.append((piece_id, holder_peer_id_list))
+            pieces_by_holder_id_list.append((piece_id, holder_peer_id_list))
 
         # Sort pieces by rarity
         # Tie breaking the sorting by prioritizing pieces that we're close to completing.
@@ -118,21 +114,21 @@ class RanchoStd(Peer):
                     unchoked_peer_id_list.append(requester_id)
 
             # If the optimistically unchoked peer is not requesting any longer, replace it.
-            if current_round % 3 == 0 or self.optimistically_unchoked_peer_id_list[0] not in requester_id_list:
+            if current_round % 3 == 0 or self.optimistically_unchoked_peer_id not in requester_id_list:
                 # Optimistically unchoke a peer
                 for requester_id in requester_id_list:
                     if requester_id not in unchoked_peer_id_list:
                         unchoked_peer_id_list.append(requester_id)
-                        self.optimistically_unchoked_peer_id_list = [requester_id]
+                        self.optimistically_unchoked_peer_id = requester_id
                         break
             else:
                 # Unchoke the same agent as in the previous round
-                unchoked_peer_id_list.append(self.optimistically_unchoked_peer_id_list[0])
+                unchoked_peer_id_list.append(self.optimistically_unchoked_peer_id)
 
             # Evenly "split" my upload bandwidth among the unchoked requesters
             bandwidths = even_split(self.up_bw, len(unchoked_peer_id_list))
 
-        # create actual uploads out of the list of peer ids and bandwidths
+        # Create actual uploads out of the list of peer ids and bandwidths
         uploads = [Upload(self.id, peer_id, bw) for (peer_id, bw) in zip(unchoked_peer_id_list, bandwidths)]
 
         return uploads

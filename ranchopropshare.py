@@ -38,19 +38,15 @@ class RanchoPropShare(Peer):
 
         random.shuffle(peers)
 
-        # Order the pieces by rarest first
+        # Finding which peers have the pieces we need
         # [(piece_id, [holder_id_list])]
         pieces_by_holder_id_list = []
         for piece_id in needed_pieces:
             holder_peer_id_list = []
-
             for peer in peers:
                 if piece_id in peer.available_pieces:
                     holder_peer_id_list.append(peer.id)
-
-            # Add the pieces to the list and its holders
-            if len(holder_peer_id_list) > 0:
-                pieces_by_holder_id_list.append((piece_id, holder_peer_id_list))
+            pieces_by_holder_id_list.append((piece_id, holder_peer_id_list))
 
         # Sort pieces by rarity
         # Tie breaking the sorting by prioritizing pieces that we're close to completing.
