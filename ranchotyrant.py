@@ -16,18 +16,17 @@ class RanchoTyrant(Peer):
         self.assumed_peer_slots = 4
         # {peer_id : flow_in_blocks}
         self.expected_peer_download_rate = dict()
-        # {peer_id : (last_unchoked, flow_in_blocks)}
-        # last_unchoked = 0 means the peer is choking us
-        # 1,2,3 means we've been unchoked for x rounds.
+        # {peer_id : flow_in_blocks}
         self.estimated_min_upload_rate_to_peer = dict()
-        # {peer_id : (last_updated, [available_pieces])}
-        self.recent_history_pieces_by_peer = dict()
-        self.cooperative_peer_set = set()
-        self.unchoked_peer_set = set()
+        # {peer_id : rounds_ago}
+        self.rounds_unchoked_by_peer = dict()
+        # {peer_id : (rounds_ago, [available_pieces])}
+        self.giver_peer_id_set = set()
+        self.receiver_peer_id_set = set()
         self.bandwith_increasing_factor = 1.2
         self.bandwith_decreasing_factor = 0.9
         self.confidence_unchoked_periods = 3
-        self.initial_min_upload_rate = int(self.up_bw / (self.assumed_peer_slots + 1))
+        self.initial_min_upload_rate = self.up_bw / (self.assumed_peer_slots + 1)
 
     def requests(self, peers, history):
         """
@@ -36,8 +35,6 @@ class RanchoTyrant(Peer):
         returns: List of Request objects.
         requests be called after update_pieces
         """
-        self.maintain_peer_data(peers, history)
-
         sent_requests = []
 
         needed_pieces = self.needed_pieces_list()
@@ -47,7 +44,7 @@ class RanchoTyrant(Peer):
         random.shuffle(peers)
 
         # Order the pieces by rarest first
-        # [(number_holders, piece_id, [holder_id_list])]
+        # [(piece_id, [holder_id_list])]
         pieces_by_holder_id_list = []
         for piece_id in needed_pieces:
             holder_peer_id_list = []
@@ -90,90 +87,91 @@ class RanchoTyrant(Peer):
         """
         current_round = history.current_round()
 
-        requester_id_list = []
+        # Initializing data
+        if current_round == 0:
+            self.expected_peer_download_rate = {peer.id: 0 for peer in peers}
+            self.rounds_unchoked_by_peer = {peer.id: 0 for peer in peers}
+            self.estimated_min_upload_rate_to_peer = {peer.id: self.initial_min_upload_rate for peer in peers}
+        else:
+            last_round_download_history = history.downloads[current_round - 1]
+            last_round_upload_history = history.uploads[current_round - 1]
+
+            self.receiver_peer_id_set = set(map(lambda upload: upload.to_id, last_round_upload_history))
+            self.giver_peer_id_set = set(map(lambda download: download.from_id, last_round_download_history))
+
+            # Adjusting upload rates
+            for receiver_peer_id in self.receiver_peer_id_set:
+                # If they are choking us
+                if receiver_peer_id not in self.giver_peer_id_set:
+                    # Increase min upload speed
+                    self.estimated_min_upload_rate_to_peer[receiver_peer_id] *= self.bandwith_increasing_factor
+                # If they're unchoking us
+                else:
+                    # Increase count of unchoked rounds
+                    self.rounds_unchoked_by_peer[receiver_peer_id] += 1
+                    if self.rounds_unchoked_by_peer[receiver_peer_id] >= self.confidence_unchoked_periods:
+                        # Decrease min upload speed
+                        self.estimated_min_upload_rate_to_peer[receiver_peer_id] *= self.bandwith_decreasing_factor
+
+            # Accumulating total downloads for each peer
+            downloaded_from_peer = {peer_id: 0 for peer_id in self.giver_peer_id_set}
+            for download in last_round_download_history:
+                downloaded_from_peer[download.from_id] += download.blocks
+
+            # Observed download flow
+            for peer_id, blocks in downloaded_from_peer.items():
+                self.expected_peer_download_rate[peer_id] = blocks
+
+            # Estimated download flow for a single peer
+            for peer in peers:
+                # These are the peers who didn't upload to us
+                if peer.id not in self.giver_peer_id_set:
+                    peer_pieces_now = len(peer.available_pieces)
+
+                    # If the peer has the same pieces, we shouldn't be interested in uploading to them
+                    interest_in_peer = len(set(self.needed_pieces_list()) & set(peer.available_pieces))
+
+                    if interest_in_peer > 0:
+                        # Estimating their rate based on the game structure
+                        self.expected_peer_download_rate[peer.id] = self.conf.blocks_per_piece * peer_pieces_now / current_round / self.assumed_peer_slots
+                    else:
+                        # We don't care about this peer
+                        self.expected_peer_download_rate[peer.id] = 0
+
+        sorted_requester_id_list = []
         used_bandwidths = []
 
         if len(incoming_requests) > 0:
+            # We don't want duplicates
             requester_id_list = list({r.requester_id for r in incoming_requests})
 
+            # Random order
             random.shuffle(requester_id_list)
 
             # Sorts from largest to smallest ratio
-            sorted_requester_id_list = sorted(map(self.calculate_ratio, requester_id_list), key=lambda (ratio, id): ratio, reverse=True)
+            sorted_requester_id_list = sorted(requester_id_list, key=lambda peer_id: self.peer_ratio(peer_id), reverse=True)
 
             # Using up the bandwith
             bandwidth_accumulator = 0
-            for index, pid in enumerate(requester_id_list):
-                bandwidth_accumulator += self.estimated_min_upload_rate_to_peer[pid][1]
+            for index, peer_id in enumerate(sorted_requester_id_list):
+                bandwidth_accumulator += int(self.estimated_min_upload_rate_to_peer[peer_id])
                 if bandwidth_accumulator > self.up_bw:
                     # Dont include this one or the rest
-                    requester_id_list = requester_id_list[:index]
+                    sorted_requester_id_list = sorted_requester_id_list[:index]
                     break
 
-            used_bandwidths = map(lambda pid: self.estimated_min_upload_rate_to_peer[pid][1], requester_id_list)
+            used_bandwidths = map(lambda pid: int(self.estimated_min_upload_rate_to_peer[pid]), sorted_requester_id_list)
 
             # Use up all the bandwith that's left
             if bandwidth_accumulator < self.up_bw:
-                used_bandwidths = map(lambda bw: int(bw * self.up_bw / bandwidth_accumulator), used_bandwidths)
+                used_bandwidths = map(lambda bw: int(bw * self.up_bw / (bandwidth_accumulator + 1)), used_bandwidths)
 
-        # create actual uploads out of the list of peer ids and bandwidths
-        uploads = [Upload(self.id, pid, bw) for pid, bw in zip(requester_id_list, used_bandwidths)]
+        # Create actual uploads out of the list of peer ids and bandwidths
+        uploads = [Upload(self.id, pid, bw) for pid, bw in zip(sorted_requester_id_list, used_bandwidths)]
         return uploads
 
-    def maintain_peer_data(self, peers, history):
-        current_round = history.current_round()
-
-        # Initializing all the data
-        if current_round == 0:
-            self.recent_history_pieces_by_peer = {peer.id: (0, peer.available_pieces) for peer in peers}
-            self.expected_peer_download_rate = {peer.id: 0 for peer in peers}
-            self.estimated_min_upload_rate_to_peer = {peer.id: (0, self.initial_min_upload_rate) for peer in peers}
-            return
-
-        # Round > 0
-        last_round_download_history = history.downloads[current_round - 1]
-
-        # Observed download flow
-        for download in last_round_download_history:
-            # This peer is unchoking us
-            self.cooperative_peer_set.add(download.from_id)
-            self.expected_peer_download_rate[download.from_id] = download.blocks
-            # We just downloaded something - means this peer is unchoking us
-            round_count, upload_rate = self.estimated_min_upload_rate_to_peer[download.from_id]
-            if round_count < self.confidence_unchoked_periods:
-                self.estimated_min_upload_rate_to_peer[download.from_id] = round_count + 1, upload_rate
-            else:
-                # Decrease upload speed
-                self.estimated_min_upload_rate_to_peer[download.from_id] = round_count + 1, upload_rate * self.bandwith_decreasing_factor
-
-        # Estimated download flow for a single peer
-        for peer in peers:
-            # These are the peers we did not just download from
-            if peer.id not in self.cooperative_peer_set:
-                peer_pieces_before = set(self.recent_history_pieces_by_peer[peer.id][1])
-                peer_pieces_now = set(peer.available_pieces)
-                last_updated = self.recent_history_pieces_by_peer[peer.id][0]
-
-                # If the peer has the same pieces, we shouldn't be interested in uploading to them
-                interest_in_peer = len(set(self.needed_pieces_list()) & peer_pieces_now)
-
-                if interest_in_peer > 0:
-                    # We will only update on change, else we'll keep our previous estimate
-                    if peer_pieces_now != peer_pieces_before:
-                        # Estimating their rate based on how much it took them to complete a piece
-                        self.expected_peer_download_rate[peer.id] = self.conf.blocks_per_piece * (peer_pieces_now - peer_pieces_before) / (current_round - last_updated) / self.assumed_peer_slots
-                        # Maintaining our records up to date
-                        self.recent_history_pieces_by_peer[peer.id] = (current_round, peer.available_pieces)
-                        # See if we should increase the expected upload rate to any of the peers we uploaded to
-                        if peer in self.unchoked_peer_set:
-                            self.estimated_min_upload_rate_to_peer[unchoked_peer.id] = 0, self.estimated_min_upload_rate_to_peer[unchoked_peer.id][1] * self.bandwith_increasing_factor
-                else:
-                    # We don't care about this peer
-                    self.expected_peer_download_rate[peer.id] = 0
-
-
-    def calculate_ratio(self, peer_id):
-        ratio = float(self.expected_peer_download_rate[peer_id]) / self.estimated_min_upload_rate_to_peer[peer_id][1]
+    def peer_ratio(self, peer_id):
+        ratio = float(self.expected_peer_download_rate[peer_id]) / (self.estimated_min_upload_rate_to_peer[peer_id] + 1)
         return ratio, peer_id
 
     def needed_pieces_list(self):

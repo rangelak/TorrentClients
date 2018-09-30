@@ -25,19 +25,18 @@ class RanchoPropShare(Peer):
         returns: List of Request objects.
         requests be called after update_pieces
         """
-        lacks_blocks = lambda i: self.pieces[i] < self.conf.blocks_per_piece
-        needed_piece_id_list = filter(lacks_blocks, range(len(self.pieces)))
-
         sent_requests = []
 
-        random.shuffle(needed_piece_id_list)
+        needed_pieces = self.needed_pieces_list()
+
+        random.shuffle(needed_pieces)
 
         random.shuffle(peers)
 
         # Order the pieces by rarest first
-        # [(number_holders, piece_id, [holder_id_list])]
+        # [(piece_id, [holder_id_list])]
         pieces_by_holder_id_list = []
-        for piece_id in needed_piece_id_list:
+        for piece_id in needed_pieces:
             holder_peer_id_list = []
 
             for peer in peers:
@@ -137,4 +136,5 @@ class RanchoPropShare(Peer):
         bandwidth_by_peer = map(lambda (x, y): (x, reciprocative_bandwith*(y/float(total_download_from_requesters))), bandwidth_by_peer)
         return bandwidth_by_peer
 
-
+    def needed_pieces_list(self):
+        return filter(lambda i: self.pieces[i] < self.conf.blocks_per_piece, range(len(self.pieces)))
